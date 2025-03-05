@@ -1,35 +1,54 @@
-## Real-Time Person Recognition System
+# Live Face Verification System
 
-This Streamlit web application provides real-time person detection and recognition capabilities using YOLOv8 and OpenCV. The system supports both image uploads and live webcam feeds.
+A Streamlit application for real-time face detection and recognition using YOLOv8.
 
-### Features
+## Features
 
-- **Multi-input Support**: Choose between image upload or webcam feed
-- **Target Management**: Upload reference images of target persons
-- **Real-time Detection**: Annotated video feed with bounding boxes
-- **Recognition System**: Color-coded boxes for recognized targets
-- **Detection Logging**: Track detected targets with timestamps
-- **Visual Feedback**: Display similarity scores and confidence levels
+- Face detection using YOLOv8
+- Basic feature matching for person recognition
+- Support for both image upload and webcam input
+- Real-time detection log
+- Adjustable confidence and IOU thresholds
 
-### Enhancements
+## Deployment on Streamlit Cloud
 
-1. **Recognition Pipeline**:
-   - Implemented feature embedding comparison
-   - Adjustable confidence thresholds
-   - Color-coding for recognized/non-recognized persons
+1. Fork this repository to your GitHub account
+2. Go to [Streamlit Cloud](https://share.streamlit.io/)
+3. Connect your GitHub account
+4. Select this repository
+5. Set the main file path to `app.py`
+6. Deploy!
 
-2. **Performance Optimizations**:
-   - Cached model loading
-   - Batch processing of frames
-   - Asynchronous I/O operations
+## Local Setup
 
-3. **UI Improvements**:
-   - Interactive sidebar controls
-   - Real-time detection logging
-   - Responsive layout for different devices
+1. Clone this repository
+2. Install the required dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Download the YOLOv8 face detection model:
+   ```bash
+   wget https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-face.pt
+   ```
+4. Run the application:
+   ```bash
+   streamlit run app.py
+   ```
 
-### Deployment
+## Usage
 
-1. Create `requirements.txt` with needed dependencies
-2. Set up Streamlit sharing account
-3. Deploy via GitHub repository:
+1. Upload target images in the sidebar
+2. Choose between Image Upload or Webcam input
+3. Adjust confidence and IOU thresholds as needed
+4. View detection results and logs below
+
+## Notes
+
+- Webcam functionality may be limited in Streamlit Cloud
+- For best results, use clear, well-lit images
+- The application uses basic feature matching - for production use, consider using more sophisticated face recognition models
+
+## Requirements
+
+- Python 3.8+
+- See requirements.txt for package dependencies
