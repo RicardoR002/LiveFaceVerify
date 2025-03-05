@@ -2,19 +2,14 @@
 import streamlit as st
 import cv2
 import numpy as np
-from ultralytics import YOLO
+from deepface import DeepFace
 from PIL import Image
 import os
 import tempfile
 from datetime import datetime
 import time
-import torch
-import urllib.request
-import sys
 
 # Configuration
-MODEL_PATH = "yolov8n-face-lindevs.pt"
-MODEL_URL = "https://github.com/lindevs/yolov8-face/releases/latest/download/yolov8n-face-lindevs.pt"
 TARGETS_DIR = "targets"
 os.makedirs(TARGETS_DIR, exist_ok=True)
 
@@ -27,90 +22,15 @@ if "webcam_active" not in st.session_state:
     st.session_state.webcam_active = False
 if "last_frame" not in st.session_state:
     st.session_state.last_frame = None
-if "model_loaded" not in st.session_state:
-    st.session_state.model_loaded = False
-
-# Download model if not present
-def download_model():
-    if not os.path.exists(MODEL_PATH):
-        try:
-            with st.spinner("Downloading model file..."):
-                urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
-                st.success("Model downloaded successfully!")
-        except Exception as e:
-            st.error(f"Error downloading model: {str(e)}")
-            return False
-    return True
-
-# Load models
-@st.cache_resource
-def load_model():
-    try:
-        if not download_model():
-            return None
-            
-        # Check if CUDA is available
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        model = YOLO(MODEL_PATH)
-        model.to(device)
-        st.session_state.model_loaded = True
-        return model
-    except Exception as e:
-        st.error(f"Error loading model: {str(e)}")
-        st.session_state.model_loaded = False
-        return None
-
-# Show loading message
-with st.spinner("Loading model..."):
-    model = load_model()
-
-if not st.session_state.model_loaded:
-    st.error("Failed to load the model. Please check your internet connection and try again.")
-    st.stop()
-
-# Sidebar controls
-with st.sidebar:
-    st.header("Detection Settings")
-    confidence = st.slider("Confidence Threshold", 0.0, 1.0, 0.5)
-    iou_threshold = st.slider("IOU Threshold", 0.0, 1.0, 0.45)
-    
-    st.subheader("Target Images")
-    st.write("Upload images of people you want to recognize")
-    target_files = st.file_uploader("Upload Target Images", 
-                                  accept_multiple_files=True,
-                                  type=["jpg", "png", "jpeg"])
-    
-    # Process uploaded targets
-    for target_file in target_files:
-        try:
-            # Create a temporary file to store the uploaded image
-            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(target_file.name)[1]) as tmp_file:
-                tmp_file.write(target_file.getvalue())
-                target_path = tmp_file.name
-            
-            target_image = Image.open(target_path)
-            st.session_state.target_embeddings[target_file.name] = extract_features(target_path)
-            os.unlink(target_path)  # Clean up the temporary file
-        except Exception as e:
-            st.error(f"Error processing target image {target_file.name}: {str(e)}")
-
-# Main app interface
-st.title("Real-Time Person Recognition System")
-st.write("This application uses YOLOv8 for face detection and basic feature matching for recognition.")
-
-input_option = st.radio("Input Source", ["Image Upload", "Webcam"])
 
 # Feature extraction function
 def extract_features(image_path):
     try:
-        # For now, we'll use a simple histogram as features
-        img = cv2.imread(image_path)
-        if img is None:
-            raise ValueError("Could not read image")
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        hist = cv2.calcHist([gray], [0], None, [128], [0, 256])
-        hist = cv2.normalize(hist, hist).flatten()
-        return hist
+        # Use DeepFace to extract face embedding
+        embedding = DeepFace.represent(image_path, model_name="Facenet", enforce_detection=False)
+        if embedding:
+            return embedding[0]['embedding']
+        return None
     except Exception as e:
         st.error(f"Error extracting features: {str(e)}")
         return None
@@ -119,60 +39,98 @@ def extract_features(image_path):
 def compare_features(input_feat, target_feat):
     if input_feat is None or target_feat is None:
         return 0
-    return np.dot(input_feat, target_feat) / (
+    # Calculate cosine similarity
+    similarity = np.dot(input_feat, target_feat) / (
         np.linalg.norm(input_feat) * np.linalg.norm(target_feat)
     )
+    st.write(f"Similarity score: {similarity:.3f}")
+    return similarity
 
 # Detection and recognition pipeline
 def process_frame(frame):
-    if frame is None or model is None:
+    if frame is None:
         return None
     
     try:
-        results = model.predict(
-            frame,
-            conf=confidence,
-            iou=iou_threshold,
-            classes=[0]  # Person class
-        )
+        # Save frame temporarily for DeepFace
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp_file:
+            cv2.imwrite(tmp_file.name, frame)
+            frame_path = tmp_file.name
+
+        # Detect and recognize faces
+        results = DeepFace.find(frame_path, db_path=TARGETS_DIR, model_name="Facenet", 
+                              enforce_detection=False, silent=True)
+        
+        # Clean up temporary file
+        os.unlink(frame_path)
         
         annotated_frame = frame.copy()
-        for result in results:
-            boxes = result.boxes.xyxy.cpu().numpy()
-            for box in boxes:
-                x1, y1, x2, y2 = map(int, box)
-                face_roi = frame[y1:y2, x1:x2]
-                
-                # Feature extraction and matching
-                input_feat = extract_features(face_roi)
-                best_match = None
-                max_score = 0
-                
-                for name, target_feat in st.session_state.target_embeddings.items():
-                    similarity = compare_features(input_feat, target_feat)
-                    if similarity > max_score and similarity > 0.7:
-                        max_score = similarity
-                        best_match = name.split(".")[0]
-                
-                # Draw bounding box
-                color = (0, 255, 0) if best_match else (0, 0, 255)
-                cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
-                
-                if best_match:
-                    label = f"{best_match} ({max_score:.2f})"
-                    cv2.putText(annotated_frame, label, (x1, y1-10),
+        
+        if results and len(results) > 0:
+            for result in results:
+                if result and len(result) > 0:
+                    # Get face location
+                    face_data = result[0]
+                    x = face_data['x']
+                    y = face_data['y']
+                    w = face_data['w']
+                    h = face_data['h']
+                    
+                    # Get identity and similarity
+                    identity = face_data['identity']
+                    similarity = face_data['VGG-Face_cosine']
+                    
+                    # Draw bounding box
+                    color = (0, 255, 0) if similarity > 0.7 else (0, 0, 255)
+                    cv2.rectangle(annotated_frame, (x, y), (x+w, y+h), color, 2)
+                    
+                    # Add label
+                    label = f"{os.path.splitext(os.path.basename(identity))[0]} ({similarity:.2f})"
+                    cv2.putText(annotated_frame, label, (x, y-10),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-                    if best_match not in st.session_state.detected_targets:
-                        st.session_state.detected_targets.append({
-                            "name": best_match,
-                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "confidence": max_score
-                        })
+                    
+                    # Log detection
+                    if similarity > 0.7:
+                        name = os.path.splitext(os.path.basename(identity))[0]
+                        if name not in st.session_state.detected_targets:
+                            st.session_state.detected_targets.append({
+                                "name": name,
+                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "confidence": similarity
+                            })
         
         return annotated_frame
     except Exception as e:
         st.error(f"Error processing frame: {str(e)}")
         return None
+
+# Sidebar controls
+with st.sidebar:
+    st.header("Detection Settings")
+    st.write("Upload images of people you want to recognize")
+    target_files = st.file_uploader("Upload Target Images", 
+                                  accept_multiple_files=True,
+                                  type=["jpg", "png", "jpeg"])
+    
+    # Process uploaded targets
+    for target_file in target_files:
+        try:
+            # Save target image to targets directory
+            target_path = os.path.join(TARGETS_DIR, target_file.name)
+            with open(target_path, 'wb') as f:
+                f.write(target_file.getvalue())
+            
+            # Extract features
+            st.session_state.target_embeddings[target_file.name] = extract_features(target_path)
+            
+        except Exception as e:
+            st.error(f"Error processing target image {target_file.name}: {str(e)}")
+
+# Main app interface
+st.title("Face Recognition System")
+st.write("This application uses DeepFace with Facenet for accurate face detection and recognition.")
+
+input_option = st.radio("Input Source", ["Image Upload", "Webcam"])
 
 # Input handling
 if input_option == "Image Upload":
@@ -184,14 +142,19 @@ if input_option == "Image Upload":
                 tmp_file.write(uploaded_file.getvalue())
                 image_path = tmp_file.name
             
+            # Process the image
             image = Image.open(image_path)
             frame = np.array(image)
             processed_frame = process_frame(frame)
             if processed_frame is not None:
                 st.image(processed_frame, channels="BGR")
             
-            # Clean up the temporary file
-            os.unlink(image_path)
+            # Clean up
+            image.close()
+            try:
+                os.unlink(image_path)
+            except Exception as e:
+                st.warning(f"Could not delete temporary file: {str(e)}")
         except Exception as e:
             st.error(f"Error processing uploaded image: {str(e)}")
 
@@ -239,6 +202,5 @@ st.markdown("""
 ### Instructions:
 1. Upload target images in the sidebar
 2. Choose between Image Upload or Webcam input
-3. Adjust confidence and IOU thresholds as needed
-4. View detection results and logs below
+3. View detection results and logs below
 """)
