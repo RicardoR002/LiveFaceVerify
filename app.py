@@ -9,9 +9,12 @@ import tempfile
 from datetime import datetime
 import time
 import torch
+import urllib.request
+import sys
 
 # Configuration
 MODEL_PATH = "yolov8n-face.pt"
+MODEL_URL = "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-face.pt"
 TARGETS_DIR = "targets"
 os.makedirs(TARGETS_DIR, exist_ok=True)
 
@@ -27,10 +30,25 @@ if "last_frame" not in st.session_state:
 if "model_loaded" not in st.session_state:
     st.session_state.model_loaded = False
 
+# Download model if not present
+def download_model():
+    if not os.path.exists(MODEL_PATH):
+        try:
+            with st.spinner("Downloading model file..."):
+                urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
+                st.success("Model downloaded successfully!")
+        except Exception as e:
+            st.error(f"Error downloading model: {str(e)}")
+            return False
+    return True
+
 # Load models
 @st.cache_resource
 def load_model():
     try:
+        if not download_model():
+            return None
+            
         # Check if CUDA is available
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = YOLO(MODEL_PATH)
@@ -47,7 +65,7 @@ with st.spinner("Loading model..."):
     model = load_model()
 
 if not st.session_state.model_loaded:
-    st.error("Failed to load the model. Please check if the model file exists and try again.")
+    st.error("Failed to load the model. Please check your internet connection and try again.")
     st.stop()
 
 # Sidebar controls
