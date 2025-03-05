@@ -13,7 +13,7 @@ import urllib.request
 import sys
 
 # Configuration
-MODEL_PATH = "yolov8n-face.pt"
+MODEL_PATH = "yolov8n-face-lindevs.pt"
 MODEL_URL = "https://github.com/lindevs/yolov8-face/releases/latest/download/yolov8n-face-lindevs.pt"
 TARGETS_DIR = "targets"
 os.makedirs(TARGETS_DIR, exist_ok=True)
